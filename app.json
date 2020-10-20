@@ -3,4 +3,5 @@
   "repository": "https://github.com/kjundada/pixiv-api/",
    "env": {
   }
+  "success_url": "/v1"
 }
