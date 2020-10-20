@@ -1,7 +1,5 @@
 {
   "name": "Heroku Pixiv RESTful API",
   "repository": "https://github.com/kjundada/pixiv-api/",
-   "env": {
-  }
-  "success_url": "/v1"
+   "description": "Heroku Pixiv RESTful API"
 }
