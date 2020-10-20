@@ -2,9 +2,17 @@ from flask import Flask,jsonify,request,make_response
 import json
 import requests
 import os
+import sys
 from pixivpy3 import *
-from config import *
-from exception import *
+
+username = "1240188105@qq.com"
+password = "kgs196983"
+
+aapi = AppPixivAPI()
+aapi.login(username, password)
+
+papi = PixivAPI()
+papi.login(username, password)
 
 class mod:
     @staticmethod
@@ -27,6 +35,18 @@ class http:
     def status(message,status_code):
         return make_response(jsonify(message), status_code)
 
+class illustDetailNotFound(Exception):
+    def __init__(self,message):
+        self.message = message
+    def __str__(self):
+        return "illustDetailNotFound ," + self.message
+
+class illustListNotFound(Exception):
+    def __init__(self,message):
+        self.message = message
+    def __str__(self):
+        return "illustListNotFound ," + self.message
+
 class PIXIV():
     """
     illustDetail(self,id)\n
@@ -37,12 +57,6 @@ class PIXIV():
     \t搜尋 PIXIV 的作品中部分包含 word 的作品列表，word 為必須值\n\toffset 為可選
     """
 
-    def __init__(self):
-        self.api = AppPixivAPI()
-        if config.Pixiv['refresh_token']==None:
-            self.api.login(config.Pixiv['username'],config.Pixiv['password'])
-        else:
-            self.api.auth(config.Pixiv['username'],config.Pixiv['password'],config.Pixiv['refresh_token'])
     
     def illustDetail(self,illustid):
         """
@@ -51,7 +65,7 @@ class PIXIV():
         如該 id 的作品已刪除或不存在該作品 id 直接回傳空json，http status code = 200
         """
         try:
-            illustdetail = self.api.illust_detail(illustid)
+            illustdetail = aapi.illust_detail(illustid)
             if 'error' in illustdetail:
                 raise illustDetailNotFound(f'illust {illustid} not found')
             return http.status(illustdetail.illust, 200)
@@ -67,7 +81,7 @@ class PIXIV():
         如該 userid 無作品或不存在該使用者直接回傳空json，http status code = 200
         """
         try:
-            illustlist = self.api.user_illusts(userid,type='illust')
+            illustlist = aapi.user_illusts(userid,type='illust')
             if not any(illustlist['illusts']):
                 raise illustListNotFound(f'user {userid} not found illust ilst')
             return http.status(illustlist, 200)
@@ -76,40 +90,21 @@ class PIXIV():
         except Exception as e:
             return Interal_Server_Error(str(e))
     
-    def illustSearch(self,word,offset=None):
+    def illustSearch(self,word):
         """
         搜尋 word 的作品列表詳細資料\n
         illustSearch(word,offset=None)\n
         word 為必須搜尋關鍵字，offset 為可選預設0(None):顯示0~29筆 30:30~59筆依此類推\n
         """
         try:
-            illust = self.api.search_illust(word,offset)
+            illust = aapi.search_illust(word, search_target='partial_match_for_tags')
             return http.status(illust, 200)
-        except Exception as e:
-            return Interal_Server_Error(str(e))
-
-    def illustRanking(self,mode=None, offset=None, date=None):
-        try:
-            if date:
-                date = (mod.datetransfer(date))
-            print(date)
-            ranking = self.api.illust_ranking(mode=mode,offset=offset,date=date)
-            return http.status(ranking, 200)
-        except Exception as e:
-            return Interal_Server_Error(str(e))
-
-    def illustR18Ranking(self,mode=None, offset=None, date=None):
-        try:
-            if not date==None:
-                date = (mod.datetransfer(date))
-            ranking = self.api.illust_ranking(mode=f'{mode}_r18',offset=offset,date=date)
-            return http.status(ranking, 200)
         except Exception as e:
             return Interal_Server_Error(str(e))
 
     def hottag(self):
         try:
-            tag = self.api.trending_tags_illust()
+            tag = aapi.trending_tags_illust()
             return http.status(tag, 200)
         except Exception as e:
             return Interal_Server_Error(str(e))
@@ -122,7 +117,7 @@ class api:
 #GET / response 
 @app.route(f"/{api.version}")
 def home():
-    return jsonify({'response':{'status':200,'message':'Welcome to Pixiv RESTful API website.','version':'1.0'}})
+    return jsonify({'response':{'status':200,'message':'欢迎来到Pixiv API','version':'1.0'}})
 
 #GET /illust/detail data:{illust id:id,}
 @app.route(f'/{api.version}/illust/detail/<int:id>')
@@ -140,58 +135,8 @@ def illust_list(id):
 @app.route(f'/{api.version}/illust/search')
 def illust_search():
     word = request.args.get('keyword')
-    offset = None
-    if request.args.get('offset') :
-        offset = request.args.get('offset')
     pixiv = PIXIV()
-    return pixiv.illustSearch(word,offset)
-
-# GET /rank/<string :timeinterval{'day', 'week', 'month'}>
-# GET /rank/<string :timeinterval>/<string: mode{day:('male', 'female','manga'),week:('original','rookie'),month:()}>
-@app.route(f'/{api.version}/rank/', defaults={'timeinterval': None})
-@app.route(f'/{api.version}/rank/<string:timeinterval>')
-@app.route(f'/{api.version}/rank/<string:timeinterval>', defaults={'mode': None})
-@app.route(f'/{api.version}/rank/<string:timeinterval>/<string:mode>')
-def illust_ranking(timeinterval,mode=None):
-    pixiv = PIXIV()
-    offset = None
-    date = None
-    if request.args.get('offset') :
-        offset = request.args.get('offset')
-    if request.args.get('date') :
-        date = request.args.get('date')
-    timeintervallist = ('day', 'week', 'month')
-    daymode = ('male', 'female','manga')
-    weekmode = ('original','rookie')
-    if timeinterval=='day' and mode in daymode:
-       return pixiv.illustRanking(timeinterval+'_'+mode, offset, date)
-    if timeinterval=='week' and mode in weekmode:
-        return pixiv.illustRanking(timeinterval+'_'+mode, offset, date)
-    if not timeinterval==None and mode==None and timeinterval in timeintervallist:
-        return pixiv.illustRanking(timeinterval, offset, date) 
-    return Page_Not_Found('404 not found')
-
-# GET /rank/<string :timeinterval{'day', 'week'}>
-# GET /rank/<string :timeinterval/<string :mode{day:('male', 'female'),week:()}>
-@app.route(f'/{api.version}/r18rank/', defaults={'timeinterval': None})
-@app.route(f'/{api.version}/r18rank/<string:timeinterval>')
-@app.route(f'/{api.version}/r18rank/<string:timeinterval>', defaults={'mode': None})
-@app.route(f'/{api.version}/r18rank/<string:timeinterval>/<string:mode>')
-def illust_r18ranking(timeinterval,mode=None):
-    pixiv = PIXIV()
-    offset = None
-    date = None
-    if request.args.get('offset') :
-        offset = request.args.get('offset')
-    if request.args.get('date') :
-        date = request.args.get('date')
-    timeintervallist = ('day', 'week')
-    daymode = ('male', 'female')
-    if timeinterval=='day' and mode in daymode:
-       return pixiv.illustR18Ranking(timeinterval+'_'+mode, offset, date)
-    if not timeinterval==None and mode==None and timeinterval in timeintervallist:
-        return pixiv.illustR18Ranking(timeinterval, offset, date) 
-    return Page_Not_Found('404 not found')
+    return pixiv.illustSearch(word)
 
 @app.route(f'/{api.version}/hottag')
 def hot_tag():
@@ -211,4 +156,4 @@ def Interal_Server_Error(e):
 
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host='0.0.0.0',port='5000')
